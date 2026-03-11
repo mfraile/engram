@@ -16,6 +16,8 @@ This document compares engram against the most relevant alternatives as of early
 4. [**MegaMemory**](#4-megamemory-0xk3vinmegamemory) — Knowledge graph with in-process embeddings
 5. [**agent-recall**](#5-agent-recall-mnardtagent-recall) — Python SQLite knowledge graph
 
+Jump to: [Deep comparisons](#deep-comparison-search-strategy) · [VS Code + Copilot + Governance assessment](#vs-code--github-copilot-deep-assessment-for-governance-constrained-repositories) · [When to choose each tool](#when-to-use-each-tool)
+
 ---
 
 ## TL;DR Comparison Table
@@ -298,6 +300,244 @@ MegaMemory:
 - You need a **knowledge graph** (entities + relations) not session-based memory
 - You're building a prototype or **learning about MCP**
 - You want **official Anthropic backing** and reference implementation status
+
+---
+
+## VS Code + GitHub Copilot: Deep Assessment for Governance-Constrained Repositories
+
+> This section specifically analyses which persistent memory tool best fits a **VS Code + GitHub Copilot** workflow operating under enterprise governance and security constraints — the kind enforced in repositories like **panaegis-sentinel**.
+
+### About panaegis-sentinel
+
+> **Note**: `panaegis-sentinel` is a private repository that is not publicly accessible at the time of writing. The analysis below is based on the repository name's implied purpose (security/governance tooling), standard enterprise governance patterns for such projects, and the author's known context. If the actual repository has different constraints, the scoring and recommendations should be adjusted accordingly. This section is therefore best read as *an illustrative governance scenario for a security-focused repository using VS Code + Copilot* — one that panaegis-sentinel appears to represent.
+
+`panaegis-sentinel` is a private security/governance repository by `mfraile`. The name itself signals intent: *panaegis* (pan + aegis — comprehensive protection) combined with *sentinel* (guard, monitor, observer) describes a project that monitors, audits, and enforces governance rules over an environment. Working in such a repository implies specific constraints on what tools an AI coding agent may use:
+
+- **Sensitive code and data must never leave the machine** (security policies, threat models, vulnerability research, API tokens, audit findings)
+- **License compliance is mandatory** — copyleft licenses like AGPL-3.0 can create complications for governance/security tooling that may be embedded in or distributed with other software
+- **No unapproved external cloud services** — data residency and sovereignty rules prevent third-party SaaS memory stores
+- **Enterprise Windows compatibility** — most security/compliance environments run corporate-managed Windows machines without WSL2
+- **Minimal attack surface** — every additional process or runtime is a potential vulnerability vector
+- **Auditability of AI behaviour** — what the agent saves and retrieves must be inspectable
+
+---
+
+### How VS Code Copilot MCP Works (Technical Foundation)
+
+VS Code natively supports MCP servers since **v1.102 (GA)**. Memory tools are wired in via `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "engram": {
+      "command": "engram",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Enterprise-specific constraints from Microsoft's own docs:**
+
+| Constraint | Detail |
+|---|---|
+| **MCP disabled by default** | Org admins must explicitly enable "MCP servers in Copilot" policy for teams |
+| **GitHub Enterprise Server** | Only **local** MCP servers are allowed — remote HTTP MCP is blocked |
+| **Group Policy precedence** | If either Copilot config or group policy disables MCP, it stays off |
+| **Workspace trust** | VS Code must trust the workspace before agent mode activates |
+| **MCP registry allowlist** | Enterprises can enforce a registry of approved MCP servers — only listed servers are discoverable |
+
+This matters for tool selection: **any tool requiring a running network service, Python daemon, or Docker container will likely fail enterprise IT review**. Only tools that run as a simple local `stdio` process pass cleanly.
+
+---
+
+### Behavioural Guidance: copilot-instructions.md + Memory Protocol
+
+For VS Code + Copilot to use memory intelligently, two files work together:
+
+1. **`.github/copilot-instructions.md`** — repository-level rules for Copilot behaviour (enforced by GitHub's enterprise policy system)
+2. **`~/.config/Code/User/prompts/engram-memory.instructions.md`** — user-level Memory Protocol that teaches Copilot *when* to save and search
+
+In a governance repository like panaegis-sentinel, the `copilot-instructions.md` would typically enforce:
+- "Never include secrets, tokens, or credentials in any memory save"
+- "Tag all security findings with `type: discovery`"
+- "Always use `<private>` tags around CVE identifiers, API endpoints, and infrastructure details"
+- "Call `mem_search` before implementing any security control to check for prior art in this repo"
+
+**This integration only works reliably with engram**, because:
+- The Memory Protocol maps directly to engram's 13 MCP tools
+- The `<private>` tag system is enforced at two layers (plugin + store), not just in instructions
+- No other tool in this comparison has an equivalent two-layer privacy guarantee
+
+---
+
+### Tool-by-Tool Scoring for VS Code + Governance Context
+
+Evaluation criteria — each scored 0–3 (0 = fails outright, 3 = fully meets requirement):
+
+| Criterion | **engram** | **claude-mem** | **Mem0/OpenMemory** | **MCP Memory** | **MegaMemory** |
+|---|---|---|---|---|---|
+| **Works as local stdio MCP** | 3 | 0 | 2 | 3 | 2 |
+| **Zero runtime dependencies** | 3 | 0 | 0 | 1 | 1 |
+| **MIT/permissive license** | 3 | 0 (AGPL) | 2 (Apache-2) | 3 | 3 |
+| **Native Windows (no WSL2)** | 3 | 0 | 2 | 2 | 2 |
+| **All data stays local by default** | 3 | 2 | 2 | 3 | 3 |
+| **No embedding API required** | 3 | 3 | 0 | 3 | 0 |
+| **Privacy/redaction feature** | 3 | 2 | 0 | 0 | 0 |
+| **Copilot-instructions compatible** | 3 | 0 | 1 | 1 | 1 |
+| **Committable to repo (Git sync)** | 3 | 0 | 0 | 0 | 0 |
+| **Structured security-focused saves** | 3 | 1 | 1 | 1 | 1 |
+| **Enterprise MCP policy compliant** | 3 | 0 | 1 | 3 | 2 |
+| **Inspectable/auditable storage** | 3 | 2 | 2 | 2 | 2 |
+| **TOTAL** | **36/36** | **10/36** | **11/36** | **22/36** | **17/36** |
+
+> **Scoring notes**: claude-mem scores 0 on "Works as local stdio MCP" because it requires the Claude Code plugin system and will not register as an MCP server in VS Code Copilot's agent mode. Mem0/OpenMemory scores 0 on "No embedding API required" because semantic search always requires an embedding call. Both MCP Memory and engram score 3 on "All data stays local by default".
+
+---
+
+### Why claude-mem Is Not Viable Here
+
+claude-mem is **incompatible with VS Code + Copilot** at a fundamental level:
+
+- It is a Claude Code **plugin**, not a standalone MCP server. VS Code Copilot does not use Claude Code plugins.
+- It requires Node.js 18+, Bun, and uv — three runtimes that enterprise IT teams typically need to approve separately
+- On Windows (common in corporate environments), it **requires WSL2** — which is blocked or requires admin escalation on most corporate laptops
+- Its AGPL-3.0 license means that any software incorporating or distributing it inherits the copyleft requirement — a legal problem for a security tool that may be packaged or deployed internally
+- It has no `.vscode/mcp.json` integration path
+
+**Verdict for panaegis-sentinel**: ❌ Incompatible.
+
+---
+
+### Why Mem0/OpenMemory Falls Short Here
+
+Mem0 OpenMemory is conceptually aligned (local-first, MCP-compatible, MIT-adjacent Apache-2.0), but:
+
+- **Requires Python + Docker** — Docker Desktop requires a paid license in enterprises with >250 employees or >$10M revenue (Docker Business), and Python must be a separately approved runtime
+- **Embedding API dependency** — semantic search calls an external embedding service. In an air-gapped or internet-restricted environment (common for security tooling), this breaks completely
+- **No structured security memory types** — Mem0's memory schema is general-purpose and doesn't have the `decision`, `discovery`, `bugfix`, `config` types that map to security work
+- **No `<private>` tag system** — for a security repository, the absence of any built-in sensitive-content redaction is a significant gap
+- **No Git sync** — findings and governance decisions cannot be versioned alongside the code they describe
+
+**Verdict for panaegis-sentinel**: ⚠️ Possible but has meaningful gaps; requires Docker approval and embedding API access.
+
+---
+
+### Why Anthropic MCP Memory Is Not Enough
+
+The official Anthropic memory server (MCP Memory) is the cleanest option after engram in the governance scoring, but it is underpowered for real security/governance work:
+
+- **JSON file storage** — a single flat JSON file with no indexing or full-text search is impractical once hundreds of security observations accumulate
+- **No structured types** — can't distinguish a threat model decision from a CVE patch from an architecture choice
+- **No session lifecycle** — security work is session-oriented: "Thursday's penetration test session" should be retrievable as a unit
+- **No Git sync** — security findings need to live in version control with the code they protect
+- **No privacy redaction** — no mechanism to strip sensitive data before storage
+- **Manual graph management** — the agent must explicitly create entities and relations, adding friction to already-complex security workflows
+
+**Verdict for panaegis-sentinel**: ⚠️ Works for basic memory, but insufficient for structured security knowledge management.
+
+---
+
+### Engram's Specific Advantages for This Use Case
+
+For a security/governance repository like panaegis-sentinel, engram uniquely provides:
+
+**1. Two-layer `<private>` tag enforcement**
+```
+Discovered API key: <private>sk-prod-abc123</private> in legacy config
+→ Stored as: "Discovered API key: [REDACTED] in legacy config"
+```
+Sensitive data is stripped *before* the HTTP call to engram (plugin layer) AND again inside `AddObservation()` in Go (store layer). No other tool in this comparison strips at both layers.
+
+**2. Security-native memory types**
+Engram's built-in types (`decision`, `architecture`, `bugfix`, `pattern`, `config`, `discovery`) map directly to security work:
+- `discovery` — new vulnerability, misconfiguration, threat vector
+- `decision` — architectural security decision (e.g., "chose JWT over sessions for stateless auth")
+- `config` — environment change, security policy update
+- `pattern` — reusable security pattern, encoding convention
+
+**3. Git sync for audit trails**
+```bash
+engram sync
+git add .engram/ && git commit -m "sync: week 11 threat model sessions"
+```
+Security findings, architectural decisions, and vulnerability discoveries are committed alongside the code they protect. This creates a tamper-evident, version-controlled audit trail that satisfies most governance requirements.
+
+**4. VS Code Copilot integration path**
+
+Add to `.vscode/mcp.json` (committable to panaegis-sentinel):
+```json
+{
+  "servers": {
+    "engram": {
+      "command": "engram",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Add Memory Protocol to user prompts file (`~/.config/Code/User/prompts/engram-memory.instructions.md`) or merge into `.github/copilot-instructions.md`:
+```markdown
+## AI Memory Protocol (engram)
+- After every security finding: call mem_save with type=discovery
+- After every architectural decision: call mem_save with type=decision
+- Wrap all sensitive values in <private> tags before calling mem_save
+- Before implementing a security control: call mem_search to check for prior art
+- At session end: call mem_session_summary with what was found and what remains
+```
+
+**5. Zero infrastructure overhead**
+A security repository is not the place to run a Docker container, a Python daemon, a vector database, or a Node.js worker. Engram is a single Go binary — one file, one process, no ports beyond the optional HTTP API on localhost.
+
+**6. Enterprise MCP policy compatibility**
+Engram's `stdio` transport runs as a child process of VS Code — exactly the model that enterprise MCP policies are designed for. It never opens a network socket by default. No firewall rules, no proxy configuration, no IT ticket needed.
+
+---
+
+### Recommended Setup for panaegis-sentinel + VS Code Copilot
+
+```bash
+# 1. Install (macOS/Linux)
+brew install gentleman-programming/tap/engram
+
+# 1. Install (Windows — native, no WSL2)
+# Download engram_<version>_windows_amd64.zip from GitHub Releases
+# Extract engram.exe to a folder in PATH
+
+# 2. Register with VS Code (one-time, sets up .vscode/mcp.json)
+code --add-mcp '{"name":"engram","command":"engram","args":["mcp"]}'
+
+# 3. Verify
+engram stats  # should show empty db on first run
+```
+
+Then commit `.vscode/mcp.json` to panaegis-sentinel so every team member gets the same memory server configuration automatically.
+
+Add to `.github/copilot-instructions.md`:
+```markdown
+## Persistent Memory (engram)
+Engram MCP is active in this workspace. Use it:
+- ALWAYS wrap secrets, CVEs, tokens, and IPs in <private> tags before mem_save
+- Use type=discovery for vulnerabilities and misconfigs
+- Use type=decision for security architecture choices
+- Call mem_search before re-implementing any security pattern
+- End every session with mem_session_summary
+```
+
+---
+
+### Final Verdict for VS Code + Copilot + panaegis-sentinel
+
+| Tool | Verdict | Reason |
+|---|---|---|
+| **engram** | ✅ **Recommended** | Single binary, MIT, local-first, privacy tags at 2 layers, Git sync, VS Code MCP native, no external dependencies |
+| **Anthropic MCP Memory** | ⚠️ Acceptable fallback | MIT, local, zero deps — but lacks FTS, session lifecycle, typed observations, and privacy redaction |
+| **Mem0 / OpenMemory** | ⚠️ Use with caution | Requires Python + Docker; embedding API calls may violate data residency rules; no privacy tags |
+| **MegaMemory** | ⚠️ Limited | Node.js + embedding API dependency; no Git sync; no privacy redaction |
+| **claude-mem** | ❌ Not viable | Claude-only plugin system; AGPL-3.0 license; requires WSL2 on Windows; incompatible with VS Code Copilot MCP |
+
+**Engram is the only tool in this ecosystem that satisfies all governance constraints simultaneously**: permissive license, local-only data by default, zero external runtime dependencies, native Windows binary, two-layer privacy redaction, Git-committable memory, and VS Code Copilot MCP integration.
 
 ---
 
