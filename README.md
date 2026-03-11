@@ -14,6 +14,7 @@
   <a href="#agent-setup">Agent Setup</a> &bull;
   <a href="CONTRIBUTING.md">Contributing</a> &bull;
   <a href="#why-not-claude-mem">Why Not claude-mem?</a> &bull;
+  <a href="COMPARISON.md">Full Ecosystem Comparison</a> &bull;
   <a href="#tui">Terminal UI</a> &bull;
   <a href="DOCS.md">Full Docs</a>
 </p>
@@ -584,6 +585,8 @@ This is the **nuclear option** — system prompts survive everything, including 
 - Works with ANY agent via standard MCP
 
 **The result**: cleaner data, faster search, no infrastructure overhead, agent-agnostic.
+
+> For a deeper comparison including Mem0/OpenMemory, Anthropic's official memory server, MegaMemory, and agent-recall, see [COMPARISON.md](COMPARISON.md).
 
 ## TUI
 
